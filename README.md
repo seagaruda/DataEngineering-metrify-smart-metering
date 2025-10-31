@@ -4,7 +4,6 @@
 
 Transform millions of smart meters into actionable insights with our enterprise-grade data pipeline. Built for scale, security, and the future of decentralized energy grids.
 
-> **⚠️ PROPRIETARY SOFTWARE**: This is proprietary software owned by Metrify. Unauthorized use, distribution, or modification is strictly prohibited. For licensing inquiries, contact licensing@metrify.com
 
 ## 🎯 Core System Overview
 
