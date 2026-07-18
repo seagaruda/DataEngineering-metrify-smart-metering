@@ -4,6 +4,7 @@ REST API endpoints for data upload, ETL orchestration, and pipeline management
 """
 
 import logging
+import os
 import time
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, status
@@ -126,8 +127,8 @@ def get_airflow_client() -> AirflowClient:
     airflow_config = get_airflow_config()
     return AirflowClient(
         base_url=airflow_config.base_url,
-        username="admin",  # Default Airflow credentials
-        password="admin"
+        username=os.getenv("AIRFLOW_API_USERNAME", ""),
+        password=os.getenv("AIRFLOW_API_PASSWORD", ""),
     )
 
 

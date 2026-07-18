@@ -5,6 +5,7 @@ Database connection and configuration management
 
 import os
 from typing import Optional
+from urllib.parse import quote_plus
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
@@ -48,7 +49,9 @@ class DatabaseConfig:
         db_user = os.getenv("DB_USER", "postgres")
         db_password = os.getenv("DB_PASSWORD", "password")
         
-        return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+        # URL-encode credentials so special characters do not corrupt the
+        # connection string, and so the real password is actually used.
+        return f"postgresql://{quote_plus(db_user)}:{quote_plus(db_password)}@{db_host}:{db_port}/{db_name}"
     
     @property
     def engine(self) -> Engine:

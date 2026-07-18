@@ -5,6 +5,7 @@ Handles data warehouse operations and analytics queries
 
 import asyncio
 import json
+import re
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
@@ -19,6 +20,36 @@ except ImportError:
 from ....core.exceptions.domain_exceptions import InfrastructureError
 
 logger = logging.getLogger(__name__)
+
+# Whitelist pattern for SQL identifiers (database/schema/table/column names).
+# Only simple identifiers are allowed to prevent SQL injection through
+# f-string interpolation of object names.
+_IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+# Allowed file formats for CREATE STAGE / COPY INTO operations.
+_ALLOWED_FILE_FORMATS = {"JSON", "CSV", "PARQUET", "AVRO", "ORC", "XML"}
+
+
+def _validate_identifier(identifier: str, label: str = "identifier") -> None:
+    """Validate a SQL identifier against a strict whitelist.
+
+    Only identifiers matching ``^[a-zA-Z_][a-zA-Z0-9_]*$`` are permitted.
+    Any identifier containing quoting, dots, semicolons, spaces, or other
+    metacharacters is rejected to prevent SQL injection.
+
+    Args:
+        identifier: The identifier to validate.
+        label: Human-readable label used in error messages (e.g. "table").
+
+    Raises:
+        ValueError: If the identifier is empty or contains disallowed characters.
+    """
+    if not isinstance(identifier, str) or not identifier or not _IDENTIFIER_PATTERN.match(identifier):
+        raise ValueError(
+            f"Invalid {label}: {identifier!r}. Only alphanumeric characters and "
+            "underscores are allowed, and the identifier must start with a letter "
+            "or underscore."
+        )
 
 
 class SnowflakeClient:
@@ -359,6 +390,21 @@ class SnowflakeClient:
             columns: Column definitions
         """
         try:
+            # Validate identifiers to prevent SQL injection. Table and column
+            # names are interpolated into DDL via f-strings, so they must be
+            # strictly whitelisted.
+            _validate_identifier(table_name, "table_name")
+            if columns:
+                for col in columns:
+                    _validate_identifier(col.get("name", ""), "column name")
+            # Validate file format against a fixed whitelist
+            normalized_format = (file_format or "").upper()
+            if normalized_format not in _ALLOWED_FILE_FORMATS:
+                raise ValueError(
+                    f"Invalid file_format: {file_format!r}. Allowed formats: "
+                    f"{sorted(_ALLOWED_FILE_FORMATS)}"
+                )
+
             if columns:
                 column_defs = ", ".join([f"{col['name']} {col['type']}" for col in columns])
                 create_sql = f"""
@@ -376,7 +422,7 @@ class SnowflakeClient:
             create_stage_sql = f"""
             CREATE OR REPLACE STAGE {stage_name}
             URL = '{s3_path}'
-            FILE_FORMAT = {file_format}
+            FILE_FORMAT = {normalized_format}
             """
             await self.execute_ddl(create_stage_sql)
             
@@ -384,7 +430,7 @@ class SnowflakeClient:
             copy_sql = f"""
             COPY INTO {table_name}
             FROM @{stage_name}
-            FILE_FORMAT = {file_format}
+            FILE_FORMAT = {normalized_format}
             """
             await self.execute_ddl(copy_sql)
             
@@ -581,6 +627,13 @@ class SnowflakeClient:
     async def insert_data(self, database: str, schema: str, table: str, data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Insert data into Snowflake table"""
         try:
+            # Validate identifiers to prevent SQL injection. database/schema/table
+            # and column names are interpolated into the INSERT statement via
+            # f-strings, so they must be strictly whitelisted.
+            _validate_identifier(database, "database")
+            _validate_identifier(schema, "schema")
+            _validate_identifier(table, "table")
+
             await self.connect()
             
             if not data:
@@ -588,6 +641,9 @@ class SnowflakeClient:
             
             # Get column names from first record
             columns = list(data[0].keys())
+            # Validate every column name before interpolating into SQL
+            for col in columns:
+                _validate_identifier(col, "column name")
             placeholders = ", ".join(["%s"] * len(columns))
             column_names = ", ".join(columns)
             

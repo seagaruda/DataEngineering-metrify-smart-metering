@@ -4,7 +4,6 @@ Handles message serialization and deserialization for Kafka
 """
 
 import json
-import pickle
 import avro.schema
 import avro.io
 from typing import Any, Dict, Optional, Union, List
@@ -22,7 +21,7 @@ class MessageSerializer:
     Kafka Message Serializer
     
     Handles serialization and deserialization of messages for Kafka
-    with support for multiple formats (JSON, Avro, Pickle)
+    with support for multiple formats (JSON, Avro)
     """
     
     def __init__(self, default_format: str = "json"):
@@ -109,7 +108,7 @@ class MessageSerializer:
         
         Args:
             data: Data to serialize
-            format_type: Serialization format (json, avro, pickle)
+            format_type: Serialization format (json, avro)
             schema_name: Avro schema name (required for Avro format)
             
         Returns:
@@ -122,8 +121,6 @@ class MessageSerializer:
                 return self._serialize_json(data)
             elif format_type == "avro":
                 return self._serialize_avro(data, schema_name)
-            elif format_type == "pickle":
-                return self._serialize_pickle(data)
             else:
                 raise ValueError(f"Unsupported format: {format_type}")
                 
@@ -142,7 +139,7 @@ class MessageSerializer:
         
         Args:
             data: Serialized data as bytes
-            format_type: Serialization format (json, avro, pickle)
+            format_type: Serialization format (json, avro)
             schema_name: Avro schema name (required for Avro format)
             
         Returns:
@@ -155,8 +152,6 @@ class MessageSerializer:
                 return self._deserialize_json(data)
             elif format_type == "avro":
                 return self._deserialize_avro(data, schema_name)
-            elif format_type == "pickle":
-                return self._deserialize_pickle(data)
             else:
                 raise ValueError(f"Unsupported format: {format_type}")
                 
@@ -208,12 +203,32 @@ class MessageSerializer:
         return reader.read(decoder)
     
     def _serialize_pickle(self, data: Any) -> bytes:
-        """Serialize data to Pickle"""
-        return pickle.dumps(data)
-    
+        """Serialize data to Pickle
+
+        .. deprecated::
+            Pickle serialization is disabled for security reasons (pickle
+            deserialization can lead to arbitrary code execution). This method
+            is retained only for API compatibility and always raises.
+        """
+        raise NotImplementedError(
+            "Pickle serialization is disabled for security reasons "
+            "(pickle deserialization enables remote code execution). "
+            "Use JSON or Avro instead."
+        )
+
     def _deserialize_pickle(self, data: bytes) -> Any:
-        """Deserialize data from Pickle"""
-        return pickle.loads(data)
+        """Deserialize data from Pickle
+
+        .. deprecated::
+            Pickle deserialization is disabled for security reasons
+            (``pickle.loads`` can execute arbitrary code). This method is
+            retained only for API compatibility and always raises.
+        """
+        raise NotImplementedError(
+            "Pickle deserialization is disabled for security reasons "
+            "(pickle.loads enables remote code execution). "
+            "Use JSON or Avro instead."
+        )
     
     def _convert_datetime_to_iso(self, data: Any) -> Any:
         """Convert datetime objects to ISO format strings"""
@@ -286,7 +301,7 @@ class MessageSerializer:
     
     def get_supported_formats(self) -> List[str]:
         """Get list of supported serialization formats"""
-        return ["json", "avro", "pickle"]
+        return ["json", "avro"]
     
     def get_available_schemas(self) -> List[str]:
         """Get list of available Avro schemas"""

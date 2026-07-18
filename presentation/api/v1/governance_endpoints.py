@@ -4,6 +4,7 @@ Comprehensive API for data governance, compliance, and quality management
 """
 
 import logging
+import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
@@ -27,9 +28,9 @@ router = APIRouter()
 # Initialize governance components
 atlas_integration = AtlasIntegration(
     AtlasConfig(
-        base_url="http://localhost:21000",
-        username="admin",
-        password="admin"
+        base_url=os.getenv("ATLAS_BASE_URL", "http://localhost:21000"),
+        username=os.getenv("ATLAS_USERNAME", ""),
+        password=os.getenv("ATLAS_PASSWORD", ""),
     )
 )
 

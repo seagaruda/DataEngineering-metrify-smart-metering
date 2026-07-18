@@ -11,6 +11,8 @@ This module provides alerting capabilities for ML model monitoring:
 import logging
 import time
 import asyncio
+import ast
+import operator
 from typing import Dict, List, Any, Optional, Union, Callable
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -22,6 +24,134 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Safe expression evaluation
+# ---------------------------------------------------------------------------
+# The alerting system evaluates user-supplied condition strings. Previously
+# this was done with ``eval()`` which allows arbitrary code execution. The
+# following restricted evaluator walks the parsed AST and only permits a small
+# whitelist of node types (numbers, strings, booleans, names, comparisons,
+# boolean operators, arithmetic, and a handful of safe builtins). Any other
+# construct (attribute access, calls other than the allow-list, imports, ...)
+# raises a ``ValueError``.
+
+_ALLOWED_BINOPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+}
+
+_ALLOWED_COMPAREOPS = {
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+}
+
+_ALLOWED_UNARYOPS = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+    ast.Not: operator.not_,
+}
+
+_ALLOWED_FUNCS = {
+    "len": len,
+    "min": min,
+    "max": max,
+    "sum": sum,
+    "abs": abs,
+    "round": round,
+}
+
+
+class _SafeExprEvaluator(ast.NodeVisitor):
+    """Evaluate a restricted Python expression AST.
+
+    Only literals, names (resolved from the supplied context or the safe
+    builtins above), comparisons, boolean/unary/binary operators, and calls
+    to the whitelisted builtin functions are permitted. Anything else raises
+    ``ValueError`` so that malformed or malicious conditions can never execute
+    arbitrary code.
+    """
+
+    def __init__(self, context: Dict[str, Any]):
+        self.context = context
+
+    def visit_Expression(self, node):  # noqa: N802 - ast API
+        return self.visit(node.body)
+
+    def visit_BoolOp(self, node):  # noqa: N802
+        values = [self.visit(v) for v in node.values]
+        if isinstance(node.op, ast.And):
+            return all(values)
+        if isinstance(node.op, ast.Or):
+            return any(values)
+        raise ValueError(f"Unsupported boolean operator: {type(node.op).__name__}")
+
+    def visit_BinOp(self, node):  # noqa: N802
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        op = _ALLOWED_BINOPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"Unsupported binary operator: {type(node.op).__name__}")
+        return op(left, right)
+
+    def visit_UnaryOp(self, node):  # noqa: N802
+        operand = self.visit(node.operand)
+        op = _ALLOWED_UNARYOPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"Unsupported unary operator: {type(node.op).__name__}")
+        return op(operand)
+
+    def visit_Compare(self, node):  # noqa: N802
+        left = self.visit(node.left)
+        result = True
+        for op_node, comp in zip(node.ops, node.comparators):
+            right = self.visit(comp)
+            cmp_op = _ALLOWED_COMPAREOPS.get(type(op_node))
+            if cmp_op is None:
+                raise ValueError(f"Unsupported comparison operator: {type(op_node).__name__}")
+            result = result and cmp_op(left, right)
+            left = right
+        return result
+
+    def visit_Name(self, node):  # noqa: N802
+        if node.id in _ALLOWED_FUNCS:
+            return _ALLOWED_FUNCS[node.id]
+        if node.id in self.context:
+            return self.context[node.id]
+        if node.id == "True":
+            return True
+        if node.id == "False":
+            return False
+        if node.id == "None":
+            return None
+        raise ValueError(f"Undefined variable: {node.id}")
+
+    def visit_Constant(self, node):  # noqa: N802
+        return node.value
+
+    def visit_Call(self, node):  # noqa: N802
+        func = self.visit(node.func)
+        # Only the whitelisted builtins may be invoked.
+        if func not in _ALLOWED_FUNCS.values():
+            raise ValueError("Function call not allowed")
+        if node.keywords:
+            raise ValueError("Keyword arguments are not allowed in conditions")
+        args = [self.visit(a) for a in node.args]
+        return func(*args)
+
+    def generic_visit(self, node):  # noqa: N802
+        raise ValueError(
+            f"Unsupported expression element: {type(node).__name__}"
+        )
 
 class AlertSeverity(Enum):
     """Alert severity levels"""
@@ -278,21 +408,20 @@ class MLAlerting:
         return triggered_alerts
     
     def _evaluate_condition(self, condition: str, context: Dict[str, Any]) -> bool:
-        """Evaluate alert rule condition safely"""
+        """Evaluate alert rule condition safely.
+
+        This uses a restricted AST-based evaluator instead of ``eval()`` to
+        prevent arbitrary code execution. Only numbers, strings, booleans,
+        comparisons (>, <, >=, <=, ==, !=), boolean logic (and, or, not),
+        basic arithmetic, parentheses, and a small set of safe builtins
+        (len, min, max, sum, abs, round) are permitted. Any other construct
+        (attribute access, imports, comprehensions, lambdas, arbitrary
+        function calls, ...) is rejected.
+        """
         try:
-            # Create a safe evaluation context
-            safe_context = {
-                '__builtins__': {},
-                'len': len,
-                'min': min,
-                'max': max,
-                'sum': sum,
-                'abs': abs,
-                'round': round,
-                **context
-            }
-            
-            return eval(condition, safe_context)
+            tree = ast.parse(condition, mode="eval")
+            evaluator = _SafeExprEvaluator(context)
+            return bool(evaluator.visit(tree))
         except Exception as e:
             logger.error(f"Error evaluating condition '{condition}': {str(e)}")
             return False

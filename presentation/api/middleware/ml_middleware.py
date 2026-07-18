@@ -5,6 +5,7 @@ Custom middleware for ML inference API including authentication, rate limiting, 
 
 import time
 import uuid
+import os
 import logging
 from typing import Callable, Dict, Any
 from fastapi import Request, Response, HTTPException
@@ -126,7 +127,7 @@ class MLMiddleware:
     
     def __init__(self, 
                  redis_url: str = "redis://localhost:6379",
-                 jwt_secret: str = "your-secret-key",
+                 jwt_secret: str = os.getenv("JWT_SECRET_KEY", ""),
                  rate_limit_requests: int = 100,
                  rate_limit_window: int = 60):
         
@@ -364,7 +365,7 @@ class MLRequestLoggingMiddleware:
 # Factory function to create ML middleware stack
 def create_ml_middleware_stack(
     redis_url: str = "redis://localhost:6379",
-    jwt_secret: str = "your-secret-key",
+    jwt_secret: str = os.getenv("JWT_SECRET_KEY", ""),
     rate_limit_requests: int = 100,
     rate_limit_window: int = 60,
     enable_caching: bool = True,

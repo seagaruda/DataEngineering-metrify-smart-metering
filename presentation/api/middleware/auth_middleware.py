@@ -70,65 +70,15 @@ class AuthMiddleware:
     
     def _is_public_endpoint(self, path: str) -> bool:
         """Check if endpoint is public (no authentication required)"""
+        # Only true public/docs endpoints are whitelisted. All /api/v1/* data
+        # endpoints (including upload/trigger) require authentication.
         public_endpoints = [
-            # Core API endpoints
-            "/",
             "/health",
-            "/metrics",
             "/docs",
-            "/redoc",
             "/openapi.json",
-            
-            # Data Engineering Endpoints - Smart Meters
-            "/api/v1/smart-meters/",
-            "/api/v1/smart-meters",
-            
-            # Data Engineering Endpoints - Grid Operators  
-            "/api/v1/grid-operators/",
-            "/api/v1/grid-operators",
-            
-            # Data Engineering Endpoints - Weather Stations
-            "/api/v1/weather/stations",
-            "/api/v1/weather/stations/",
-            
-            # Data Engineering Endpoints - Analytics
-            "/api/v1/analytics/overview",
-            "/api/v1/analytics/energy-consumption",
-            "/api/v1/analytics/weather-impact", 
-            "/api/v1/analytics/anomalies",
-            "/api/v1/analytics/data-quality",
-            "/api/v1/analytics/reports/daily",
-            
-            # Data Engineering Endpoints - Data Quality
-            "/api/v1/quality/assess",
-            "/api/v1/quality/validate",
-            "/api/v1/quality/monitors",
-            "/api/v1/quality/monitors/status",
-            "/api/v1/quality/alerts",
-            
-            # Data Engineering Endpoints - Advanced Analytics
-            "/api/v1/advanced-analytics/status",
-            "/api/v1/advanced-analytics/health",
-            
-            # Data Engineering Endpoints - ML
-            "/api/v1/ml/health",
-            "/api/v1/ml/metrics",
-            
-            # Data Engineering Endpoints - Governance
-            "/api/v1/governance/status",
-            "/api/v1/governance/health",
-            
-            # Data Pipeline Endpoints
-            "/api/v1/pipeline/upload/s3",
-            "/api/v1/pipeline/upload/snowflake",
-            "/api/v1/pipeline/trigger/etl",
-            "/api/v1/pipeline/trigger/dbt",
-            "/api/v1/pipeline/trigger/full-pipeline",
-            "/api/v1/pipeline/status/",
-            "/api/v1/pipeline/dags",
-            "/api/v1/pipeline/health",
-            "/api/v1/pipeline/data-flow/complete",
-            "/api/v1/pipeline/data-flow/validate"
+            "/api/health",
+            "/api/docs",
+            "/api/openapi.json",
         ]
         return path in public_endpoints
     
